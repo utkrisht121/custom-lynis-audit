@@ -1,98 +1,185 @@
 #!/bin/sh
-# Lynis custom tests for macOS. Lynis SOURCES this file; do not run it directly.
-# The test IDs, registration order, and Lynis reporting functions are retained.
+#
+# Lynis custom macOS security tests — Version 1.0
+# Author / project maintainer: Utkrish Mishra
+#
+# INSTALL: copy this file as <lynis include directory>/tests_custom.
+# IMPORTANT: Lynis sources this file into its running shell. Do not execute it
+# directly, call exit, or change macOS security settings from this file.
+#
+# Tests run in the assignment order:
+#   CUST-9001 - FileVault full-disk encryption
+#   CUST-9002 - Wi-Fi service IPv6 configuration
+#   CUST-9003 - macOS Application Firewall
+#
+# Each test follows Lynis: Register -> SKIPTEST -> Display / LogText / Report
+# -> optional ReportWarning -> optional AddHP.
+#
 
-# FIRE-9001: macOS Application Firewall and stealth mode
-Register --test-no FIRE-9001 --os macOS --weight L --network NO --category security \
-    --description "Check macOS Firewall and Stealth Mode"
+################################################################################
+# CUST-9001: FileVault encryption audit
+################################################################################
+Register --test-no CUST-9001 --os macOS --weight L --network NO \
+    --category security --description "Check macOS FileVault disk encryption"
+
 if [ "${SKIPTEST:-1}" -eq 0 ]; then
-    FIREWALL_BIN="${FIREWALL_BIN:-/usr/libexec/ApplicationFirewall/socketfilterfw}"
+    CUST_FILEVAULT_BIN="${CUST_FILEVAULT_BIN:-/usr/bin/fdesetup}"
+    LogText "CUST-9001: Inspecting FileVault disk encryption"
 
-    if [ ! -x "${FIREWALL_BIN}" ]; then
-        Display --indent 2 --text "- macOS Application Firewall" --result "UNVERIFIED" --color YELLOW
-        LogText "FIRE-9001: socketfilterfw utility unavailable"
-        Report "firewall_daemon=missing"
-        Report "firewall_status=unknown"
-        Report "stealth_mode=unknown"
-        ReportWarning "${TEST_NO}" "Firewall settings could not be verified: socketfilterfw unavailable"
+    if [ ! -x "${CUST_FILEVAULT_BIN}" ]; then
+        Display --indent 2 --text "- FileVault disk encryption" --result "UNVERIFIED" --color YELLOW
+        LogText "CUST-9001: fdesetup is unavailable or not executable"
+        Report "custom_filevault_status=unknown"
+        ReportWarning "${TEST_NO}" "FileVault status could not be verified"
     else
-        FW_STATUS=$("${FIREWALL_BIN}" --getglobalstate 2>/dev/null)
-        case "${FW_STATUS}" in
-            *"Firewall is enabled"*|*"Firewall is Enabled"*)
-                Display --indent 2 --text "- macOS Application Firewall" --result "ENABLED" --color GREEN
-                LogText "FIRE-9001: Firewall ENABLED"
-                Report "firewall_status=enabled"
-                AddHP 5 5
-                ;;
-            *"Firewall is disabled"*|*"Firewall is Disabled"*)
-                Display --indent 2 --text "- macOS Application Firewall" --result "DISABLED" --color YELLOW
-                LogText "FIRE-9001: Firewall DISABLED"
-                Report "firewall_status=disabled"
-                ReportWarning "${TEST_NO}" "Firewall is disabled"
-                AddHP 0 5
-                ;;
-            *)
-                Display --indent 2 --text "- macOS Application Firewall" --result "UNVERIFIED" --color YELLOW
-                LogText "FIRE-9001: Firewall status could not be determined"
-                Report "firewall_status=unknown"
-                ReportWarning "${TEST_NO}" "Firewall status could not be verified"
-                ;;
-        esac
-
-        STEALTH_STATUS=$("${FIREWALL_BIN}" --getstealthmode 2>/dev/null)
-        case "${STEALTH_STATUS}" in
-            *"Stealth mode enabled"*|*"Stealth mode is on"*)
-                Display --indent 2 --text "- Firewall stealth mode" --result "ENABLED" --color GREEN
-                LogText "FIRE-9001: Stealth Mode ENABLED"
-                Report "stealth_mode=enabled"
-                ;;
-            *"Stealth mode disabled"*|*"Stealth mode is off"*)
-                Display --indent 2 --text "- Firewall stealth mode" --result "DISABLED" --color YELLOW
-                LogText "FIRE-9001: Stealth Mode DISABLED"
-                Report "stealth_mode=disabled"
-                ReportWarning "${TEST_NO}" "Stealth Mode is disabled"
-                ;;
-            *)
-                Display --indent 2 --text "- Firewall stealth mode" --result "UNVERIFIED" --color YELLOW
-                LogText "FIRE-9001: Stealth Mode status could not be determined"
-                Report "stealth_mode=unknown"
-                ReportWarning "${TEST_NO}" "Stealth Mode status could not be verified"
-                ;;
-        esac
+        CUST_FILEVAULT_OUTPUT=$("${CUST_FILEVAULT_BIN}" status 2>/dev/null)
+        CUST_FILEVAULT_EXIT=$?
+        if [ "${CUST_FILEVAULT_EXIT}" -ne 0 ]; then
+            Display --indent 2 --text "- FileVault disk encryption" --result "UNVERIFIED" --color YELLOW
+            LogText "CUST-9001: fdesetup status command failed"
+            Report "custom_filevault_status=unknown"
+            ReportWarning "${TEST_NO}" "FileVault status command failed"
+        else
+            case "${CUST_FILEVAULT_OUTPUT}" in
+                *"FileVault is On."*)
+                    Display --indent 2 --text "- FileVault disk encryption" --result "ENABLED" --color GREEN
+                    LogText "CUST-9001: FileVault is enabled"
+                    Report "custom_filevault_status=enabled"
+                    AddHP 5 5
+                    ;;
+                *"FileVault is Off."*)
+                    Display --indent 2 --text "- FileVault disk encryption" --result "DISABLED" --color YELLOW
+                    LogText "CUST-9001: FileVault is disabled"
+                    Report "custom_filevault_status=disabled"
+                    ReportWarning "${TEST_NO}" "FileVault full-disk encryption is disabled"
+                    AddHP 0 5
+                    ;;
+                *)
+                    Display --indent 2 --text "- FileVault disk encryption" --result "UNVERIFIED" --color YELLOW
+                    LogText "CUST-9001: Unrecognized or transitional FileVault status"
+                    Report "custom_filevault_status=unknown"
+                    ReportWarning "${TEST_NO}" "FileVault status could not be interpreted"
+                    ;;
+            esac
+        fi
     fi
 fi
 
-# CRYP-9001: FileVault full-disk encryption
-Register --test-no CRYP-9001 --os macOS --weight L --network NO --category security \
-    --description "Check macOS FileVault disk encryption"
+################################################################################
+# CUST-9002: IPv6 configuration audit on the Wi-Fi network service
+################################################################################
+Register --test-no CUST-9002 --os macOS --weight L --network NO \
+    --category security --description "Check IPv6 configuration for the Wi-Fi network service"
+
 if [ "${SKIPTEST:-1}" -eq 0 ]; then
-    if command -v fdesetup >/dev/null 2>&1; then
-        FILEVAULT_STATUS=$(fdesetup status 2>&1)
-        case "${FILEVAULT_STATUS}" in
-            *"FileVault is On"*)
-                Display --indent 2 --text "- FileVault disk encryption" --result "ENABLED" --color GREEN
-                LogText "CRYP-9001: FileVault is enabled"
-                Report "filevault_status=enabled"
-                AddHP 5 5
-                ;;
-            *"FileVault is Off"*)
-                Display --indent 2 --text "- FileVault disk encryption" --result "DISABLED" --color YELLOW
-                LogText "CRYP-9001: FileVault is disabled"
-                Report "filevault_status=disabled"
-                ReportWarning "${TEST_NO}" "FileVault disk encryption is disabled"
-                AddHP 0 5
-                ;;
-            *)
-                Display --indent 2 --text "- FileVault disk encryption" --result "UNVERIFIED" --color YELLOW
-                LogText "CRYP-9001: FileVault status could not be verified"
-                Report "filevault_status=unknown"
-                ReportWarning "${TEST_NO}" "FileVault status could not be verified"
-                ;;
-        esac
+    CUST_NETWORKSETUP_BIN="${CUST_NETWORKSETUP_BIN:-/usr/sbin/networksetup}"
+    CUST_WIFI_SERVICE="${CUST_WIFI_SERVICE:-Wi-Fi}"
+    LogText "CUST-9002: Inspecting IPv6 configuration for network service ${CUST_WIFI_SERVICE}"
+
+    if [ ! -x "${CUST_NETWORKSETUP_BIN}" ]; then
+        Display --indent 2 --text "- Wi-Fi IPv6 configuration" --result "UNVERIFIED" --color YELLOW
+        LogText "CUST-9002: networksetup is unavailable or not executable"
+        Report "custom_wifi_ipv6_status=unknown"
+        Report "custom_wifi_ipv6_mode=unknown"
     else
-        Display --indent 2 --text "- FileVault disk encryption" --result "UNVERIFIED" --color YELLOW
-        LogText "CRYP-9001: fdesetup command unavailable"
-        Report "filevault_status=unknown"
-        ReportWarning "${TEST_NO}" "FileVault could not be verified: fdesetup unavailable"
+        # -getinfo is read-only. -getv6 is NOT a documented networksetup option.
+        CUST_NETWORK_OUTPUT=$("${CUST_NETWORKSETUP_BIN}" -getinfo "${CUST_WIFI_SERVICE}" 2>/dev/null)
+        CUST_NETWORK_EXIT=$?
+
+        if [ "${CUST_NETWORK_EXIT}" -ne 0 ]; then
+            Display --indent 2 --text "- Wi-Fi IPv6 configuration" --result "UNVERIFIED" --color YELLOW
+            LogText "CUST-9002: Unable to read Wi-Fi service configuration"
+            Report "custom_wifi_ipv6_status=unknown"
+            Report "custom_wifi_ipv6_mode=unknown"
+        else
+            # Only parse the configuration line, not the IPv6 addresses.
+            CUST_IPV6_MODE=$(printf '%s\n' "${CUST_NETWORK_OUTPUT}" |
+                sed -n 's/^[[:space:]]*IPv6:[[:space:]]*//p' | sed -n '1p')
+
+            case "${CUST_IPV6_MODE}" in
+                Automatic|automatic)
+                    Display --indent 2 --text "- Wi-Fi IPv6 configuration" --result "ENABLED (AUTO)" --color GREEN
+                    LogText "CUST-9002: IPv6 enabled with automatic configuration"
+                    Report "custom_wifi_ipv6_status=enabled"
+                    Report "custom_wifi_ipv6_mode=automatic"
+                    ;;
+                Manual|manual)
+                    Display --indent 2 --text "- Wi-Fi IPv6 configuration" --result "ENABLED (MANUAL)" --color GREEN
+                    LogText "CUST-9002: IPv6 enabled with manual configuration"
+                    Report "custom_wifi_ipv6_status=enabled"
+                    Report "custom_wifi_ipv6_mode=manual"
+                    ;;
+                "Link-local only"|"Link-local Only"|"Link-Local Only"|"link-local only")
+                    Display --indent 2 --text "- Wi-Fi IPv6 configuration" --result "ENABLED (LINK-LOCAL)" --color GREEN
+                    LogText "CUST-9002: IPv6 enabled for link-local traffic only"
+                    Report "custom_wifi_ipv6_status=enabled"
+                    Report "custom_wifi_ipv6_mode=link_local_only"
+                    ;;
+                Off|off|Disabled|disabled)
+                    Display --indent 2 --text "- Wi-Fi IPv6 configuration" --result "DISABLED" --color YELLOW
+                    LogText "CUST-9002: IPv6 is off for the selected Wi-Fi service"
+                    Report "custom_wifi_ipv6_status=disabled"
+                    Report "custom_wifi_ipv6_mode=off"
+                    ;;
+                *)
+                    Display --indent 2 --text "- Wi-Fi IPv6 configuration" --result "UNVERIFIED" --color YELLOW
+                    LogText "CUST-9002: IPv6 configuration line missing or unrecognized"
+                    Report "custom_wifi_ipv6_status=unknown"
+                    Report "custom_wifi_ipv6_mode=unknown"
+                    ;;
+            esac
+        fi
+    fi
+
+    # IPv6 being enabled/disabled is not inherently secure/insecure.
+    # No warning or hardening points are assigned based solely on IPv6 mode.
+fi
+
+################################################################################
+# CUST-9003: macOS Application Firewall audit
+################################################################################
+Register --test-no CUST-9003 --os macOS --weight L --network NO \
+    --category security --description "Check the macOS Application Firewall status"
+
+if [ "${SKIPTEST:-1}" -eq 0 ]; then
+    CUST_FIREWALL_BIN="${CUST_FIREWALL_BIN:-/usr/libexec/ApplicationFirewall/socketfilterfw}"
+    LogText "CUST-9003: Inspecting the macOS Application Firewall"
+
+    if [ ! -x "${CUST_FIREWALL_BIN}" ]; then
+        Display --indent 2 --text "- macOS Application Firewall" --result "UNVERIFIED" --color YELLOW
+        LogText "CUST-9003: socketfilterfw is unavailable or not executable"
+        Report "custom_firewall_status=unknown"
+        ReportWarning "${TEST_NO}" "Application Firewall status could not be verified"
+    else
+        CUST_FIREWALL_OUTPUT=$("${CUST_FIREWALL_BIN}" --getglobalstate 2>/dev/null)
+        CUST_FIREWALL_EXIT=$?
+        if [ "${CUST_FIREWALL_EXIT}" -ne 0 ]; then
+            Display --indent 2 --text "- macOS Application Firewall" --result "UNVERIFIED" --color YELLOW
+            LogText "CUST-9003: socketfilterfw --getglobalstate command failed"
+            Report "custom_firewall_status=unknown"
+            ReportWarning "${TEST_NO}" "Application Firewall status command failed"
+        else
+            case "${CUST_FIREWALL_OUTPUT}" in
+                *"Firewall is enabled"*|*"Firewall is Enabled"*)
+                    Display --indent 2 --text "- macOS Application Firewall" --result "ENABLED" --color GREEN
+                    LogText "CUST-9003: Application Firewall is enabled"
+                    Report "custom_firewall_status=enabled"
+                    AddHP 5 5
+                    ;;
+                *"Firewall is disabled"*|*"Firewall is Disabled"*)
+                    Display --indent 2 --text "- macOS Application Firewall" --result "DISABLED" --color YELLOW
+                    LogText "CUST-9003: Application Firewall is disabled"
+                    Report "custom_firewall_status=disabled"
+                    ReportWarning "${TEST_NO}" "The macOS Application Firewall is disabled"
+                    AddHP 0 5
+                    ;;
+                *)
+                    Display --indent 2 --text "- macOS Application Firewall" --result "UNVERIFIED" --color YELLOW
+                    LogText "CUST-9003: Unrecognized Application Firewall status"
+                    Report "custom_firewall_status=unknown"
+                    ReportWarning "${TEST_NO}" "Application Firewall status could not be interpreted"
+                    ;;
+            esac
+        fi
     fi
 fi

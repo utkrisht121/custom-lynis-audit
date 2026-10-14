@@ -1,52 +1,58 @@
-# Implementation and testing notes
+# Validation and implementation notes — Version 1.0
 
-## How Lynis loads the tests
+## Integration contract
 
-During `lynis audit system`, Lynis checks its `include/tests_custom` file, checks its permissions, and **sources** the file in the existing audit shell. This means `Register`, `SKIPTEST`, `Display`, `LogText`, `Report`, `ReportWarning`, and `AddHP` are already available; the file must not invoke `exit` or assume it runs as a separate process.
+`tests_custom` is a **POSIX shell include file**, not a standalone executable. Lynis sources it at the custom-test stage. `Register` sets `TEST_NO` and `SKIPTEST`; the code uses `if [ "${SKIPTEST:-1}" -eq 0 ]` after **each** registration. The three unique IDs execute in this exact order:
 
-The primary file registers `FIRE-9001` first and `CRYP-9001` second, matching the existing sequence. Both registrations use `--os macOS` and respect `SKIPTEST`. Non-macOS hosts are therefore skipped by Lynis. When a utility is missing, the finding is `unknown`, and the second test is still reached.
+1. `CUST-9001` — FileVault
+2. `CUST-9002` — IPv6 (Wi-Fi)
+3. `CUST-9003` — Application Firewall
 
-## Report values
+There is no `exit` in the sourced file. A missing utility must not terminate Lynis or prevent the next test from registering.
 
-| Report key | Values | Meaning |
-| --- | --- | --- |
-| `firewall_status` | `enabled`, `disabled`, `unknown` | Application Firewall global state |
-| `stealth_mode` | `enabled`, `disabled`, `unknown` | Application Firewall stealth mode |
-| `filevault_status` | `enabled`, `disabled`, `unknown` | FileVault status reported by `fdesetup` |
-| `firewall_daemon` | `missing` (when relevant) | Legacy report key indicating the `socketfilterfw` executable is absent, **not** a daemon liveness check |
+## Command map
 
-Unknown values result in a warning to inspect the audit environment; they do not receive hardening points. Verified enabled / disabled outcomes retain the original `AddHP 5 5` / `AddHP 0 5` pattern for the firewall and FileVault checks. Stealth mode remains an informational or warning check without extra points in the primary implementation.
+| ID | Read-only command | Output-to-status mapping | Report fields |
+|---|---|---|---|
+| `CUST-9001` | `/usr/bin/fdesetup status` | On / Off / unrecognized | `custom_filevault_status` |
+| `CUST-9002` | `/usr/sbin/networksetup -getinfo "Wi-Fi"` | Automatic, Manual, Link-local only / Off / unrecognized | `custom_wifi_ipv6_status`, `custom_wifi_ipv6_mode` |
+| `CUST-9003` | `/usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate` | enabled / disabled / unrecognized | `custom_firewall_status` |
 
-## Regression scenarios
+Commands must both exist and exit successfully before parsing their output. Unrecognized or transitional status is **unknown**, never automatically disabled.
 
-Run `sh tests/smoke.sh` from the repository root, or call it by path. The tests stub Lynis functions and native commands. They verify:
+FileVault and the Application Firewall use `AddHP 5 5` on verified enabled and `AddHP 0 5` on verified disabled. IPv6 status has **no** pass/fail hardening score or automatic warning: that is a site-policy decision.
 
-1. All three settings enabled: enabled reports and expected hardening points.
-2. All three settings disabled: disabled reports and findings.
-3. Unknown native responses: no false disabled reports or undeserved hardening points.
-4. Missing firewall executable: FileVault still executes (no `exit` in sourced file).
-5. `SKIPTEST=1`: no checks execute, although registrations still occur.
-6. A non-macOS `OS` value: both checks are skipped.
+## Test matrix
 
-The smoke tests do not require root, change macOS settings, or claim to reproduce a real-device Lynis audit. Actual integration should be confirmed on macOS using `sudo lynis audit system` and `/var/log/lynis.log`.
+`sh tests/smoke.sh` stubs the Lynis functions and macOS commands without accessing or modifying real host configuration.
 
-## Optional extended firewall check
+| Case | Expected behavior |
+|---|---|
+| All features enabled | Three enabled report statuses; IPv6 automatic; two positive hardening scores. |
+| All features disabled | Three disabled report statuses; warnings only for FileVault and Firewall. |
+| IPv6 manual mode | Enabled, manual. |
+| IPv6 link-local-only mode | Enabled, link-local-only; not equivalent to full routed IPv6. |
+| Unrecognized command output | Unknown status; no false disabled finding or hardening score. |
+| Failed native commands | Unknown statuses; remaining checks still register. |
+| Missing utilities | Unknown statuses; no premature Lynis exit. |
+| Lynis skips tests | Registrations occur, but no custom reports are emitted. |
+| Non-macOS host | Lynis `--os macOS` causes all three checks to be skipped. |
+| Renamed Wi-Fi service | A service name with spaces is passed as one argument. |
 
-The `tests_firewall_macos` file is deliberately separate. It uses the **same** test identifier `FIRE-9001` and adds `--listapps` diagnostics and a separate `/sbin/pfctl -s info` check. To use it, replace the `FIRE-9001` block in `tests_custom` with the extended file's contents and **keep only one** `FIRE-9001` registration. Do not just append the entire file; that would register the ID twice.
-
-There is no standalone `./tests_firewall_macos` invocation: the file depends on Lynis functions. A disabled or unknown `pf` result is not treated as proof about the Application Firewall. The `--listapps` result only reports whether a listing was readable; it does not claim a count from unrelated preference keys.
-
-## Restoring a previous installation
-
-If you saved an original file as `include/tests_custom.backup`, restore it in the same Lynis checkout:
+## Local checks
 
 ```sh
-sudo cp -p include/tests_custom.backup include/tests_custom
-sudo ./lynis audit system
+sh -n tests_custom
+sh -n tests/smoke.sh
+sh tests/smoke.sh
 ```
 
-If there was no original `tests_custom`, remove the newly installed custom file from the Lynis include directory after confirming its location. Do not delete the upstream `tests_custom.template` or any built-in Lynis modules.
+The GitHub Actions workflow runs these checks automatically. The mock test's passing result does not claim that FileVault, Firewall, or IPv6 was actually enabled on any Mac.
 
-## Scope
+## Live validation on the Mac
 
-This is configuration auditing, not remediation. No test should change the host's security settings, force-quit the audit, or infer a successful check from empty/unknown command output.
+Run `sudo lynis audit system`; confirm the three test IDs and matching `custom_...` report entries. On macOS, compare the displayed values with the read-only native commands from [the audit guide](AUDIT_GUIDE.md). Save real screenshots or outputs only after a live run.
+
+## Files intentionally removed from the old project
+
+Version 1.0 removes the former extended `tests_firewall_macos` file and the former `FIRE-9001`/`CRYP-9001` test IDs. Stealth-mode and `pf` diagnostics are out of scope for this three-question assignment. The original upstream template remains under `reference/` for studying Lynis's scripting pattern.

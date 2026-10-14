@@ -1,18 +1,20 @@
-name: Shell validation
+name: Validate Lynis custom tests
+
 on:
   push:
   pull_request:
+
 permissions:
   contents: read
+
 jobs:
-  tests:
+  shell-tests:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Check POSIX shell syntax
+      - name: Validate POSIX shell syntax
         run: |
           sh -n tests_custom
-          sh -n tests_firewall_macos
           sh -n tests/smoke.sh
-      - name: Run mock-based regression tests
+      - name: Run mocked Lynis regression scenarios
         run: sh tests/smoke.sh
