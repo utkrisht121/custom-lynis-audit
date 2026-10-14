@@ -34,10 +34,13 @@ The IPv6 test also records *automatic*, *manual*, *link-local-only*, or *off* co
 ```text
 custom-lynis-audit/
 ├── README.md       # Project overview, setup and instructions
-└── tests_custom    # All three Lynis custom security checks
+├── tests_custom            # Lynis entry point; loads the scripts below
+├── tests_filevault_macos   # CUST-9001: FileVault
+├── tests_ipv6_macos        # CUST-9002: Wi-Fi IPv6
+└── tests_firewall_macos    # CUST-9003: Application Firewall
 ```
 
-Only the file `tests_custom` is required for integration. It is **sourced by Lynis**, not executed as an independent shell program.
+Install **all four script files together in the same Lynis include directory**. Lynis automatically sources `tests_custom`, which loads the dedicated scripts in assignment order: FileVault → IPv6 → Firewall. The audit files use Lynis's standard registration and reporting functions; do not run them as standalone shell programs.
 
 ## Installation and execution
 
@@ -58,17 +61,17 @@ git clone https://github.com/utkrisht121/custom-lynis-audit.git
 cd custom-lynis-audit
 ```
 
-**3. Install the custom test file.** First run `lynis show includedir` to identify the correct Lynis include directory. Replace `<include-directory>` below with its actual value:
+**3. Install the four custom-test files.** First run `lynis show includedir` to identify the correct Lynis include directory. Replace `<include-directory>` below with its actual value:
 
 ```sh
 # Back up an existing file ONLY if one already exists:
 sudo cp -p "<include-directory>/tests_custom" "<include-directory>/tests_custom.backup"
 
-# Install the three audit checks:
-sudo install -m 600 tests_custom "<include-directory>/tests_custom"
+# Install the loader and all three independent audit files:
+sudo install -m 600 tests_custom tests_filevault_macos tests_ipv6_macos tests_firewall_macos "<include-directory>/"
 ```
 
-Skip the backup command when no previous `tests_custom` file exists. The `600` permissions allow Lynis to safely load the file. For a source checkout, its `include/` directory is the destination; package-managed paths may change after updates.
+Skip the backup command when no previous `tests_custom` file exists. The `600` permissions protect all four files. If one audit file is missing, the loader reports the missing file instead of silently skipping it. For a source checkout, its `include/` directory is the destination; package-managed paths may change after updates.
 
 **4. Run Lynis:**
 
@@ -85,7 +88,14 @@ sudo grep -E 'CUST-9001|CUST-9002|CUST-9003' /var/log/lynis.log
 sudo grep '^custom_' /var/log/lynis-report.dat
 ```
 
-Lynis's configured log/report paths may differ. To check syntax without running a security audit, use `sh -n tests_custom`.
+Lynis's configured log/report paths may differ. To check syntax without running a security audit, use:
+
+```sh
+sh -n tests_custom
+sh -n tests_filevault_macos
+sh -n tests_ipv6_macos
+sh -n tests_firewall_macos
+```
 
 ### Sample audit output
 

@@ -1,0 +1,53 @@
+#!/bin/sh
+# CUST-9003 — macOS security audit
+# Maintainer: Utkrish Mishra
+# Lynis sources this file through tests_custom. Do not run it standalone.
+
+################################################################################
+# CUST-9003: macOS Application Firewall audit
+################################################################################
+Register --test-no CUST-9003 --os macOS --weight L --network NO \
+    --category security --description "Check the macOS Application Firewall status"
+
+if [ "${SKIPTEST:-1}" -eq 0 ]; then
+    CUST_FIREWALL_BIN="${CUST_FIREWALL_BIN:-/usr/libexec/ApplicationFirewall/socketfilterfw}"
+    LogText "CUST-9003: Inspecting the macOS Application Firewall"
+
+    if [ ! -x "${CUST_FIREWALL_BIN}" ]; then
+        Display --indent 2 --text "- macOS Application Firewall" --result "UNVERIFIED" --color YELLOW
+        LogText "CUST-9003: socketfilterfw is unavailable or not executable"
+        Report "custom_firewall_status=unknown"
+        ReportWarning "${TEST_NO}" "Application Firewall status could not be verified"
+    else
+        CUST_FIREWALL_OUTPUT=$("${CUST_FIREWALL_BIN}" --getglobalstate 2>/dev/null)
+        CUST_FIREWALL_EXIT=$?
+        if [ "${CUST_FIREWALL_EXIT}" -ne 0 ]; then
+            Display --indent 2 --text "- macOS Application Firewall" --result "UNVERIFIED" --color YELLOW
+            LogText "CUST-9003: socketfilterfw --getglobalstate command failed"
+            Report "custom_firewall_status=unknown"
+            ReportWarning "${TEST_NO}" "Application Firewall status command failed"
+        else
+            case "${CUST_FIREWALL_OUTPUT}" in
+                *"Firewall is enabled"*|*"Firewall is Enabled"*)
+                    Display --indent 2 --text "- macOS Application Firewall" --result "ENABLED" --color GREEN
+                    LogText "CUST-9003: Application Firewall is enabled"
+                    Report "custom_firewall_status=enabled"
+                    AddHP 5 5
+                    ;;
+                *"Firewall is disabled"*|*"Firewall is Disabled"*)
+                    Display --indent 2 --text "- macOS Application Firewall" --result "DISABLED" --color YELLOW
+                    LogText "CUST-9003: Application Firewall is disabled"
+                    Report "custom_firewall_status=disabled"
+                    ReportWarning "${TEST_NO}" "The macOS Application Firewall is disabled"
+                    AddHP 0 5
+                    ;;
+                *)
+                    Display --indent 2 --text "- macOS Application Firewall" --result "UNVERIFIED" --color YELLOW
+                    LogText "CUST-9003: Unrecognized Application Firewall status"
+                    Report "custom_firewall_status=unknown"
+                    ReportWarning "${TEST_NO}" "Application Firewall status could not be interpreted"
+                    ;;
+            esac
+        fi
+    fi
+fi

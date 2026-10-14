@@ -1,0 +1,74 @@
+#!/bin/sh
+# CUST-9002 — macOS security audit
+# Maintainer: Utkrish Mishra
+# Lynis sources this file through tests_custom. Do not run it standalone.
+
+################################################################################
+# CUST-9002: IPv6 configuration audit on the Wi-Fi network service
+################################################################################
+Register --test-no CUST-9002 --os macOS --weight L --network NO \
+    --category security --description "Check IPv6 configuration for the Wi-Fi network service"
+
+if [ "${SKIPTEST:-1}" -eq 0 ]; then
+    CUST_NETWORKSETUP_BIN="${CUST_NETWORKSETUP_BIN:-/usr/sbin/networksetup}"
+    CUST_WIFI_SERVICE="${CUST_WIFI_SERVICE:-Wi-Fi}"
+    LogText "CUST-9002: Inspecting IPv6 configuration for network service ${CUST_WIFI_SERVICE}"
+
+    if [ ! -x "${CUST_NETWORKSETUP_BIN}" ]; then
+        Display --indent 2 --text "- Wi-Fi IPv6 configuration" --result "UNVERIFIED" --color YELLOW
+        LogText "CUST-9002: networksetup is unavailable or not executable"
+        Report "custom_wifi_ipv6_status=unknown"
+        Report "custom_wifi_ipv6_mode=unknown"
+    else
+        # -getinfo is read-only. -getv6 is NOT a documented networksetup option.
+        CUST_NETWORK_OUTPUT=$("${CUST_NETWORKSETUP_BIN}" -getinfo "${CUST_WIFI_SERVICE}" 2>/dev/null)
+        CUST_NETWORK_EXIT=$?
+
+        if [ "${CUST_NETWORK_EXIT}" -ne 0 ]; then
+            Display --indent 2 --text "- Wi-Fi IPv6 configuration" --result "UNVERIFIED" --color YELLOW
+            LogText "CUST-9002: Unable to read Wi-Fi service configuration"
+            Report "custom_wifi_ipv6_status=unknown"
+            Report "custom_wifi_ipv6_mode=unknown"
+        else
+            # Only parse the configuration line, not the IPv6 addresses.
+            CUST_IPV6_MODE=$(printf '%s\n' "${CUST_NETWORK_OUTPUT}" |
+                sed -n 's/^[[:space:]]*IPv6:[[:space:]]*//p' | sed -n '1p')
+
+            case "${CUST_IPV6_MODE}" in
+                Automatic|automatic)
+                    Display --indent 2 --text "- Wi-Fi IPv6 configuration" --result "ENABLED (AUTO)" --color GREEN
+                    LogText "CUST-9002: IPv6 enabled with automatic configuration"
+                    Report "custom_wifi_ipv6_status=enabled"
+                    Report "custom_wifi_ipv6_mode=automatic"
+                    ;;
+                Manual|manual)
+                    Display --indent 2 --text "- Wi-Fi IPv6 configuration" --result "ENABLED (MANUAL)" --color GREEN
+                    LogText "CUST-9002: IPv6 enabled with manual configuration"
+                    Report "custom_wifi_ipv6_status=enabled"
+                    Report "custom_wifi_ipv6_mode=manual"
+                    ;;
+                "Link-local only"|"Link-local Only"|"Link-Local Only"|"link-local only")
+                    Display --indent 2 --text "- Wi-Fi IPv6 configuration" --result "ENABLED (LINK-LOCAL)" --color GREEN
+                    LogText "CUST-9002: IPv6 enabled for link-local traffic only"
+                    Report "custom_wifi_ipv6_status=enabled"
+                    Report "custom_wifi_ipv6_mode=link_local_only"
+                    ;;
+                Off|off|Disabled|disabled)
+                    Display --indent 2 --text "- Wi-Fi IPv6 configuration" --result "DISABLED" --color YELLOW
+                    LogText "CUST-9002: IPv6 is off for the selected Wi-Fi service"
+                    Report "custom_wifi_ipv6_status=disabled"
+                    Report "custom_wifi_ipv6_mode=off"
+                    ;;
+                *)
+                    Display --indent 2 --text "- Wi-Fi IPv6 configuration" --result "UNVERIFIED" --color YELLOW
+                    LogText "CUST-9002: IPv6 configuration line missing or unrecognized"
+                    Report "custom_wifi_ipv6_status=unknown"
+                    Report "custom_wifi_ipv6_mode=unknown"
+                    ;;
+            esac
+        fi
+    fi
+
+    # IPv6 being enabled/disabled is not inherently secure/insecure.
+    # No warning or hardening points are assigned based solely on IPv6 mode.
+fi

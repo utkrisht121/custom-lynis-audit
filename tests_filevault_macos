@@ -1,0 +1,53 @@
+#!/bin/sh
+# CUST-9001 — macOS security audit
+# Maintainer: Utkrish Mishra
+# Lynis sources this file through tests_custom. Do not run it standalone.
+
+################################################################################
+# CUST-9001: FileVault encryption audit
+################################################################################
+Register --test-no CUST-9001 --os macOS --weight L --network NO \
+    --category security --description "Check macOS FileVault disk encryption"
+
+if [ "${SKIPTEST:-1}" -eq 0 ]; then
+    CUST_FILEVAULT_BIN="${CUST_FILEVAULT_BIN:-/usr/bin/fdesetup}"
+    LogText "CUST-9001: Inspecting FileVault disk encryption"
+
+    if [ ! -x "${CUST_FILEVAULT_BIN}" ]; then
+        Display --indent 2 --text "- FileVault disk encryption" --result "UNVERIFIED" --color YELLOW
+        LogText "CUST-9001: fdesetup is unavailable or not executable"
+        Report "custom_filevault_status=unknown"
+        ReportWarning "${TEST_NO}" "FileVault status could not be verified"
+    else
+        CUST_FILEVAULT_OUTPUT=$("${CUST_FILEVAULT_BIN}" status 2>/dev/null)
+        CUST_FILEVAULT_EXIT=$?
+        if [ "${CUST_FILEVAULT_EXIT}" -ne 0 ]; then
+            Display --indent 2 --text "- FileVault disk encryption" --result "UNVERIFIED" --color YELLOW
+            LogText "CUST-9001: fdesetup status command failed"
+            Report "custom_filevault_status=unknown"
+            ReportWarning "${TEST_NO}" "FileVault status command failed"
+        else
+            case "${CUST_FILEVAULT_OUTPUT}" in
+                *"FileVault is On."*)
+                    Display --indent 2 --text "- FileVault disk encryption" --result "ENABLED" --color GREEN
+                    LogText "CUST-9001: FileVault is enabled"
+                    Report "custom_filevault_status=enabled"
+                    AddHP 5 5
+                    ;;
+                *"FileVault is Off."*)
+                    Display --indent 2 --text "- FileVault disk encryption" --result "DISABLED" --color YELLOW
+                    LogText "CUST-9001: FileVault is disabled"
+                    Report "custom_filevault_status=disabled"
+                    ReportWarning "${TEST_NO}" "FileVault full-disk encryption is disabled"
+                    AddHP 0 5
+                    ;;
+                *)
+                    Display --indent 2 --text "- FileVault disk encryption" --result "UNVERIFIED" --color YELLOW
+                    LogText "CUST-9001: Unrecognized or transitional FileVault status"
+                    Report "custom_filevault_status=unknown"
+                    ReportWarning "${TEST_NO}" "FileVault status could not be interpreted"
+                    ;;
+            esac
+        fi
+    fi
+fi
