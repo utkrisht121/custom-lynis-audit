@@ -1,195 +1,103 @@
 #!/bin/sh
+# Optional extended macOS firewall audit, intended as an ALTERNATIVE to the
+# FIRE-9001 block in tests_custom. Do not source both: IDs must remain unique.
+# This file is sourced by Lynis, not executed as a standalone shell program.
 
-#################################################################################
-#
-#   Lynis - Custom Security Audit Test
-#   Test ID: FIRE-9001
-#   Category: Firewalling
-#   
-#   Description: Audit macOS built-in firewall (socketfilterfw) status and 
-#                stealth mode configuration
-#   Purpose: Verify that the macOS firewall is enabled and stealth mode is 
-#            configured to avoid responding to network probes and scans.
-#   
-#   Author: Ankush Pratham
-#   Date Created: July 2026
-#   macOS Compatibility: 10.5 (Leopard) and later
-#
-#################################################################################
+Register --test-no FIRE-9001 --os macOS --weight L --network NO --category security \
+    --description "Audit macOS Application Firewall, stealth mode, and diagnostics"
+if [ "${SKIPTEST:-1}" -eq 0 ]; then
+    InsertSection "macOS Application Firewall - Extended Audit"
+    FIREWALL_BIN="${FIREWALL_BIN:-/usr/libexec/ApplicationFirewall/socketfilterfw}"
 
-# Only run on macOS systems
-if [ "${OS}" = "macos" ]; then
-
-    # Register test with Lynis
-    Register --test-no FIRE-9001 --weight L --network NO --category security \
-             --description "Check macOS built-in firewall (socketfilterfw) status and stealth mode"
-
-    # Insert section header into Lynis report
-    InsertSection "macOS Built-in Firewall (socketfilterfw) Audit"
-
-    # ======================== CHECK 1: Query firewall enabled status ========================
-    LogText "Test: Checking macOS built-in firewall (pf/socketfilterfw) status"
-
-    # Method 1: Use defaults command to read firewall settings
-    # The macOS firewall settings are stored in com.apple.security.firewall plist
-    FIREWALL_ENABLED=$(defaults read /Library/Preferences/com.apple.security.firewall globalstate 2>/dev/null)
-    FIREWALL_EXIT_CODE=$?
-
-    LogText "Test: Reading firewall globalstate via defaults command"
-    
-    if [ ${FIREWALL_EXIT_CODE} -eq 0 ]; then
-        
-        LogText "Result: Firewall preference found - globalstate = ${FIREWALL_ENABLED}"
-        
-        case "${FIREWALL_ENABLED}" in
-            
-            0)
-                Display --indent 2 --text "- macOS firewall status" --result "DISABLED" --color RED
+    # 1. Application Firewall global state
+    LogText "FIRE-9001: Checking macOS Application Firewall state"
+    if [ -x "${FIREWALL_BIN}" ]; then
+        FW_STATUS=$("${FIREWALL_BIN}" --getglobalstate 2>/dev/null)
+        case "${FW_STATUS}" in
+            *"Firewall is enabled"*|*"Firewall is Enabled"*)
+                Display --indent 2 --text "- macOS Application Firewall" --result "ENABLED" --color GREEN
+                Report "firewall_status=enabled"
+                LogText "FIRE-9001: Application Firewall enabled"
+                AddHP 5 5
+                ;;
+            *"Firewall is disabled"*|*"Firewall is Disabled"*)
+                Display --indent 2 --text "- macOS Application Firewall" --result "DISABLED" --color RED
                 Report "firewall_status=disabled"
-                Report "firewall_globalstate=0"
-                
-                LogText "Result: macOS firewall is DISABLED (globalstate=0 = off)"
-                ReportWarning "FIRE-9001" "macOS built-in firewall is disabled. Enable it to filter incoming network traffic." "-"
+                ReportWarning "${TEST_NO}" "Application Firewall is disabled"
+                LogText "FIRE-9001: Application Firewall disabled"
                 AddHP 0 5
                 ;;
-            
-            1)
-                Display --indent 2 --text "- macOS firewall status" --result "ENABLED" --color GREEN
-                Report "firewall_status=enabled"
-                Report "firewall_globalstate=1"
-                
-                LogText "Result: macOS firewall is ENABLED (globalstate=1 = on for specific apps)"
-                AddHP 4 5
-                ;;
-            
-            2)
-                Display --indent 2 --text "- macOS firewall status" --result "ENABLED (All Apps)" --color GREEN
-                Report "firewall_status=enabled_all"
-                Report "firewall_globalstate=2"
-                
-                LogText "Result: macOS firewall is ENABLED for all applications (globalstate=2 = strictest mode)"
-                AddHP 5 5
-                ;;
-            
             *)
-                Display --indent 2 --text "- macOS firewall status" --result "UNKNOWN" --color YELLOW
-                Report "firewall_globalstate=${FIREWALL_ENABLED}"
-                
-                LogText "Result: Unknown firewall state value: ${FIREWALL_ENABLED}"
-                AddHP 2 5
+                Display --indent 2 --text "- macOS Application Firewall" --result "UNVERIFIED" --color YELLOW
+                Report "firewall_status=unknown"
+                LogText "FIRE-9001: Application Firewall state unavailable"
                 ;;
         esac
 
-    else
-        
-        LogText "Result: Could not read firewall globalstate from defaults (may not be configured or permission denied)"
-        Display --indent 2 --text "- macOS firewall status" --result "UNABLE TO DETERMINE" --color YELLOW
-        Report "firewall_status=unknown"
-        
-    fi
-
-    # ======================== CHECK 2: Query Stealth Mode status ========================
-    LogText "Test: Checking macOS firewall stealth mode configuration"
-
-    # Stealth mode setting is in com.apple.security.firewall stealthEnabled property
-    STEALTH_MODE=$(defaults read /Library/Preferences/com.apple.security.firewall stealthEnabled 2>/dev/null)
-    STEALTH_EXIT_CODE=$?
-
-    if [ ${STEALTH_EXIT_CODE} -eq 0 ]; then
-        
-        LogText "Test: Reading firewall stealthEnabled via defaults command"
-        
-        case "${STEALTH_MODE}" in
-            
-            1|true)
+        # 2. Application Firewall stealth mode
+        STEALTH_STATUS=$("${FIREWALL_BIN}" --getstealthmode 2>/dev/null)
+        case "${STEALTH_STATUS}" in
+            *"Stealth mode enabled"*|*"Stealth mode is on"*)
                 Display --indent 2 --text "- Firewall stealth mode" --result "ENABLED" --color GREEN
                 Report "firewall_stealth_mode=enabled"
-                Report "firewall_stealthEnabled=1"
-                
-                LogText "Result: Firewall stealth mode is ENABLED"
-                LogText "Explanation: System will not respond to ICMP (ping) or network probes; blocks inbound connections not explicitly allowed"
+                LogText "FIRE-9001: Stealth mode enabled"
                 AddHP 5 5
                 ;;
-            
-            0|false)
+            *"Stealth mode disabled"*|*"Stealth mode is off"*)
                 Display --indent 2 --text "- Firewall stealth mode" --result "DISABLED" --color YELLOW
                 Report "firewall_stealth_mode=disabled"
-                Report "firewall_stealthEnabled=0"
-                
-                LogText "Result: Firewall stealth mode is DISABLED"
-                LogText "Explanation: System will respond to ICMP and network probes; may leak information about open services"
-                ReportSuggestion "FIRE-9001" "Consider enabling macOS Firewall Stealth Mode to reduce system visibility to network reconnaissance."
-                AddHP 3 5
+                ReportSuggestion "${TEST_NO}" "Consider enabling Application Firewall stealth mode"
+                LogText "FIRE-9001: Stealth mode disabled"
+                AddHP 0 5
                 ;;
-            
             *)
-                Display --indent 2 --text "- Firewall stealth mode" --result "UNKNOWN" --color YELLOW
-                Report "firewall_stealthEnabled=${STEALTH_MODE}"
-                
-                LogText "Result: Unknown stealth mode value: ${STEALTH_MODE}"
-                AddHP 2 5
+                Display --indent 2 --text "- Firewall stealth mode" --result "UNVERIFIED" --color YELLOW
+                Report "firewall_stealth_mode=unknown"
+                LogText "FIRE-9001: Stealth mode state unavailable"
                 ;;
         esac
 
-    else
-        
-        LogText "Result: Could not read stealth mode setting (may not be configured or permission denied)"
-        Display --indent 2 --text "- Firewall stealth mode" --result "UNABLE TO DETERMINE" --color YELLOW
-        Report "firewall_stealth_mode=unknown"
-        
-    fi
-
-    # ======================== CHECK 3: Verify firewall daemon is running ========================
-    LogText "Test: Checking if firewall daemon (socketfilterfw) process is active"
-
-    # Check if pf (packet filter) is loaded
-    if [ -x "/sbin/pfctl" ]; then
-        PF_STATUS=$(/sbin/pfctl -si 2>/dev/null | grep -i "status")
-        
-        if echo "${PF_STATUS}" | grep -q "Enabled"; then
-            Display --indent 2 --text "- Firewall daemon (pf) status" --result "RUNNING" --color GREEN
-            Report "firewall_pf_daemon=running"
-            LogText "Result: Packet filter firewall daemon is loaded and active"
-            AddHP 3 3
+        # 3. Optional list of application-specific firewall rules (no fake counts)
+        APP_RULES=$("${FIREWALL_BIN}" --listapps 2>/dev/null)
+        if [ -n "${APP_RULES}" ]; then
+            Display --indent 2 --text "- Application firewall rules" --result "AVAILABLE" --color WHITE
+            Report "firewall_app_rules=available"
+            LogText "FIRE-9001: Application firewall rules are available for review"
         else
-            Display --indent 2 --text "- Firewall daemon (pf) status" --result "INACTIVE" --color YELLOW
-            Report "firewall_pf_daemon=inactive"
-            LogText "Result: Packet filter firewall daemon may not be loaded"
+            Display --indent 2 --text "- Application firewall rules" --result "UNAVAILABLE" --color YELLOW
+            Report "firewall_app_rules=unknown"
         fi
     else
-        LogText "Result: pfctl utility not found (unusual for macOS)"
+        Display --indent 2 --text "- macOS Application Firewall" --result "UNVERIFIED" --color YELLOW
+        LogText "FIRE-9001: socketfilterfw unavailable"
+        Report "firewall_status=unknown"
+        Report "firewall_stealth_mode=unknown"
+        Report "firewall_app_rules=unknown"
     fi
 
-    # ======================== CHECK 4: List firewall exceptions (whitelisted apps) ========================
-    LogText "Test: Checking firewall exceptions and whitelisted applications"
-
-    # Firewall exceptions are stored in com.apple.security.firewall AllowSignedEnabled array
-    FIREWALL_EXCEPTIONS=$(defaults read /Library/Preferences/com.apple.security.firewall AllowSignedEnabled 2>/dev/null)
-    
-    if [ -n "${FIREWALL_EXCEPTIONS}" ]; then
-        EXCEPTION_COUNT=$(echo "${FIREWALL_EXCEPTIONS}" | wc -l | xargs)
-        Display --indent 2 --text "- Firewall exceptions (allow list)" --result "${EXCEPTION_COUNT} apps" --color WHITE
-        Report "firewall_exception_count=${EXCEPTION_COUNT}"
-        LogText "Firewall has ${EXCEPTION_COUNT} applications in the allow list"
+    # 4. Separate packet filter diagnostic; pf is NOT the Application Firewall.
+    if [ -x /sbin/pfctl ]; then
+        PF_STATUS=$(/sbin/pfctl -s info 2>/dev/null)
+        case "${PF_STATUS}" in
+            *"Status: Enabled"*)
+                Display --indent 2 --text "- Packet filter (pf; separate)" --result "ENABLED" --color GREEN
+                Report "firewall_pf_daemon=running"
+                LogText "FIRE-9001: Separate pf packet filter enabled"
+                ;;
+            *"Status: Disabled"*)
+                Display --indent 2 --text "- Packet filter (pf; separate)" --result "DISABLED" --color WHITE
+                Report "firewall_pf_daemon=inactive"
+                LogText "FIRE-9001: Separate pf packet filter disabled"
+                ;;
+            *)
+                Display --indent 2 --text "- Packet filter (pf; separate)" --result "UNVERIFIED" --color WHITE
+                Report "firewall_pf_daemon=unknown"
+                ;;
+        esac
     else
-        Display --indent 2 --text "- Firewall exceptions (allow list)" --result "None or unavailable" --color WHITE
-        Report "firewall_exception_count=0"
-        LogText "Result: No explicit firewall exceptions found or unable to read"
+        Report "firewall_pf_daemon=unknown"
+        LogText "FIRE-9001: pfctl unavailable"
     fi
 
-    # ======================== CHECK 5: Summary and recommendations ========================
-    LogText ""
-    LogText "Firewall Audit Summary:"
-    LogText "- Firewall should be enabled (globalstate=2 is most secure)"
-    LogText "- Stealth mode should be enabled to avoid network reconnaissance"
-    LogText "- Only necessary applications should be in the firewall allow list"
-    LogText "- Regularly review and update firewall rules"
-
-    # Log completion
-    LogText "Audit for macOS firewall configuration complete"
-
+    LogText "FIRE-9001: Extended macOS firewall audit complete"
 fi
-
-#################################################################################
-# EOF - tests_firewall_macos
-#################################################################################

@@ -1,199 +1,116 @@
-# Lynis macOS Security Enhancements
+# Custom Lynis Security Audit for macOS
 
-Custom security auditing tests developed using **Lynis** to assess macOS security configurations, focusing on FileVault disk encryption and the built-in Application Firewall.
+[![Shell validation](https://github.com/utkrisht121/custom-lynis-audit/actions/workflows/validate.yml/badge.svg)](https://github.com/utkrisht121/custom-lynis-audit/actions/workflows/validate.yml)
 
-**Author:** Ankush Pratham  
-**Platform:** macOS  
-**Framework:** Lynis  
-**Language:** Shell scripting
+Two small, **read-only macOS security checks** for [Lynis](https://github.com/CISOfy/lynis): FileVault full-disk encryption and the macOS Application Firewall (including stealth mode). The project uses Lynis's existing `tests_custom` integration; it does not replace or modify the Lynis engine.
 
-## Overview
+> **Compatibility:** macOS with a compatible Lynis installation. These files are **sourced by Lynis**, not executed as standalone audit programs. Mock-based regression tests also run on Linux, but they do not replace a real macOS audit.
 
-Lynis is an open-source security auditing tool that evaluates system configurations, identifies potential security weaknesses, and provides recommendations for improving system hardening.
+## What it checks
 
-This project extends Lynis with two custom security checks:
+| Test ID | Check | Native command | Finding |
+| --- | --- | --- | --- |
+| `FIRE-9001` | Application Firewall | `socketfilterfw --getglobalstate` | Enabled, disabled, or unverified |
+| `FIRE-9001` | Firewall stealth mode | `socketfilterfw --getstealthmode` | Enabled, disabled, or unverified |
+| `CRYP-9001` | FileVault disk encryption | `fdesetup status` | Enabled, disabled, or unverified |
 
-- **CRYP-9001 — FileVault Encryption Audit:** Checks whether macOS FileVault disk encryption is enabled.
-- **FIRE-9001 — macOS Firewall Audit:** Checks the macOS Application Firewall status and stealth-mode configuration.
+Each check uses the same Lynis workflow: `Register` → inspect the command result → `Display` / `LogText` / `Report` → `ReportWarning` when applicable → `AddHP` for verified outcomes. Both original test identifiers are retained.
 
-These enhancements demonstrate how Lynis's custom-test mechanism can be used to audit platform-specific security features.
+## Quick start
 
-## Project Structure
+**1. Download the project and Lynis.**
 
-```text
-lynis-macos-security-enhancements/
-├── README.md
-├── tests_custom
-├── tests_firewall_macos
-```
-
-- `tests_custom` contains the custom tests loaded by Lynis, including the FileVault and firewall audit logic.
-- `tests_firewall_macos` contains the standalone macOS firewall audit script.
-
-## Enhancement 1: FileVault Encryption Audit
-
-**Test ID:** `CRYP-9001`
-
-FileVault provides disk encryption for supported macOS systems. This test uses the `fdesetup status` command to inspect the reported encryption status.
-
-### Checks performed
-
-- Determines whether the `fdesetup` utility is available.
-- Retrieves the FileVault status.
-- Displays whether encryption is enabled or disabled/unverified.
-- Records findings using Lynis reporting functions.
-- Reports potential security concerns when the status indicates a problem.
-
-### Example output
-
-```text
-[+] Custom tests
-  - FileVault disk encryption                     [ ENABLED ]
-```
-
-The output above is illustrative. Actual results depend on the system configuration.
-
-## Enhancement 2: macOS Firewall Audit
-
-**Test ID:** `FIRE-9001`
-
-The macOS Application Firewall helps control incoming network connections. Stealth mode can reduce the system's visibility to certain unsolicited network probes.
-
-This test uses the following utility:
-
-```text
-/usr/libexec/ApplicationFirewall/socketfilterfw
-```
-
-### Checks performed
-
-- Checks whether the Application Firewall utility is available.
-- Retrieves the global firewall state.
-- Checks whether stealth mode is enabled.
-- Records results in the Lynis log and report.
-- Reports potential security concerns when a setting is disabled or cannot be verified.
-
-### Example output
-
-```text
-[+] Custom tests
-  - macOS Application Firewall                     [ ENABLED ]
-  - Firewall stealth mode                          [ ENABLED ]
-```
-
-This output is illustrative; replace it with actual results from your audit when documenting a completed run.
-
-## Requirements
-
-- A compatible macOS system.
-- Lynis installed locally or checked out from its official repository.
-- Terminal access.
-- Permission to run Lynis audits.
-- The macOS `fdesetup` and `socketfilterfw` utilities for the respective checks.
-
-These tests are designed for macOS and are not intended to run unchanged on Linux systems.
-
-## Installation and Usage
-
-### 1. Obtain Lynis
-
-Clone the official Lynis repository:
-
-```bash
+```sh
+git clone https://github.com/utkrisht121/custom-lynis-audit.git
 git clone https://github.com/CISOfy/lynis.git
 cd lynis
 ```
 
-If Lynis is already installed, navigate to your existing Lynis directory instead.
+**2. Install the custom test file in the Lynis source checkout.** This example assumes both repositories were cloned side by side.
 
-### 2. Back up the custom-test file
-
-Before modifying an existing custom-test file, create a backup:
-
-```bash
-sudo cp include/tests_custom include/tests_custom.backup
+```sh
+# Only if you already have an include/tests_custom file:
+[ ! -f include/tests_custom ] || sudo cp -p include/tests_custom include/tests_custom.backup
+sudo install -m 600 ../custom-lynis-audit/tests_custom include/tests_custom
 ```
 
-### 3. Configure the custom tests
+For a Homebrew or other packaged Lynis installation, run `lynis show includedir` and place `tests_custom` in **that** directory instead. Keep a backup before replacing an existing file. Package upgrades may overwrite files inside managed installation directories.
 
-Lynis loads its custom tests through the `include/tests_custom` file when the custom-test stage is reached.
+**3. Execute the normal Lynis audit.**
 
-Ensure the required test code is included in that file and that the test IDs are unique. The standalone firewall script must also be integrated into the appropriate loading mechanism if you want it to execute automatically.
-
-### 4. Check the Lynis version
-
-```bash
+```sh
 sudo ./lynis show version
-```
-
-### 5. Run the security audit
-
-```bash
 sudo ./lynis audit system
 ```
 
-Review the terminal output and Lynis log to verify whether the custom checks executed.
+For packaged Lynis, use `sudo lynis audit system`. Lynis reads `include/tests_custom` during its normal custom-test stage, subject to its file-permission checks. No separate run command or change to the Lynis execution sequence is necessary.
 
-### 6. Inspect the audit log
+**4. Verify your findings.**
 
-```bash
-sudo grep -E 'FIRE-9001|CRYP-9001|FileVault|Firewall|Stealth' \
-    /var/log/lynis.log
+```sh
+sudo grep -E 'FIRE-9001|CRYP-9001|FileVault|Stealth' /var/log/lynis.log
+sudo grep -E '^(firewall_status|stealth_mode|filevault_status)=' /var/log/lynis-report.dat
 ```
 
-The log path can vary depending on the Lynis configuration.
+The log and report file locations may differ if you changed your Lynis configuration. A test file existing on disk does **not** prove it executed: check the terminal output and logs.
 
-## Custom Test Functions
+### Example output (illustrative)
 
-The custom checks use Lynis functions to integrate with the audit workflow:
+```text
+[+] Custom tests
+  - macOS Application Firewall                  [ ENABLED ]
+  - Firewall stealth mode                       [ ENABLED ]
+  - FileVault disk encryption                   [ ENABLED ]
+```
 
-| Function | Purpose |
-|---|---|
-| `Register` | Defines a custom test and its identifier. |
-| `Display` | Shows a result in the terminal. |
-| `LogText` | Records test information in the Lynis log. |
-| `Report` | Adds information to the Lynis report data. |
-| `ReportWarning` | Records a potential security concern. |
-| `AddHP` | Contributes hardening points according to the test logic. |
+Results depend on the audited machine. No screenshot or result is presented as a completed real-device audit.
 
-Function signatures and supported behavior should be checked against the installed Lynis version.
+## Files
 
-## Testing and Validation
+```text
+custom-lynis-audit/
+├── README.md
+├── tests_custom                      # Install this file for both primary checks
+├── tests_firewall_macos              # Optional extended FIRE-9001 alternative
+├── docs/
+│   └── TESTING.md                    # Audit logic, limitations, testing, rollback
+├── reference/
+│   └── tests_custom.template         # Unmodified upstream Lynis example
+├── tests/
+│   └── smoke.sh                      # Mocked regression tests (no system changes)
+└── .github/workflows/
+    └── validate.yml                 # Shell syntax + smoke checks
+```
 
-To validate the enhancements:
+`tests_firewall_macos` is an **alternative** to the `FIRE-9001` section of `tests_custom`, not another file that Lynis automatically executes. It adds application-rule visibility and an explicitly separate `pf` status diagnostic. **Do not load both `FIRE-9001` definitions** in the same Lynis audit. The main `tests_custom` file is the recommended and default integration.
 
-1. Run a standard Lynis audit.
-2. Verify that the custom-test stage is reached.
-3. Confirm that `CRYP-9001` executes and reports the FileVault status.
-4. Confirm that `FIRE-9001` executes and reports firewall and stealth-mode status.
-5. Inspect the terminal output and audit log.
-6. Capture screenshots of the actual results.
-7. Test behavior when a command is unavailable or a setting cannot be verified.
+## Safety and interpretation
 
-A test file existing on disk does not by itself prove that Lynis loaded or executed it. Verify execution before claiming a successful audit.
+- The checks **read** current configuration; they never enable/disable the firewall or FileVault.
+- `UNVERIFIED` means the command was unavailable, failed, or returned unexpected output. It is **not** proof that the feature is disabled.
+- A disabled FileVault or firewall setting is a configuration finding, not evidence of compromise.
+- Lynis may require root privileges, and some macOS settings vary by OS release and policy.
+- macOS Application Firewall and the `pf` packet filter are **different components**; `pf` status is not used as evidence that Application Firewall is enabled.
+- The project does not assess recovery-key escrow, firewall policy quality, encryption strength, or endpoint compromise.
 
-## Learning Outcomes
+## Validation
 
-- Understanding the Lynis custom-test architecture.
-- Developing shell-based security checks.
-- Inspecting macOS disk-encryption configuration.
-- Auditing Application Firewall settings.
-- Recording findings through security-audit reporting functions.
-- Troubleshooting permissions and test-loading issues.
-- Understanding the importance of validating security results.
+Run basic checks before installation:
 
-## Limitations
+```sh
+sh -n tests_custom
+sh -n tests_firewall_macos
+sh tests/smoke.sh
+```
 
-- The checks are designed specifically for macOS.
-- Results depend on the availability and behavior of system utilities.
-- An unknown or unreadable status should not automatically be interpreted as a confirmed security failure.
-- The tests provide configuration checks, not a complete security assessment.
-- Custom-test execution must be verified for the installed Lynis version.
+See [Testing and implementation notes](docs/TESTING.md) for the test matrix, expected outcomes, installation rollback, and integration details.
 
-## References
+## Original project and upstream references
 
-- [Official Lynis repository](https://github.com/CISOfy/lynis)
+The original repository files credited **Ankush Pratham**. The repository is maintained under [utkrisht121](https://github.com/utkrisht121). The unmodified Lynis sample file is retained in [`reference/tests_custom.template`](reference/tests_custom.template), with the upstream project credited below.
+
+- [Lynis source code](https://github.com/CISOfy/lynis)
 - [Lynis documentation](https://cisofy.com/documentation/lynis/)
 - [Apple Platform Security](https://support.apple.com/guide/security/welcome/web)
 
-##
+*This is a supplemental auditing project, not an official Lynis or Apple security product.*

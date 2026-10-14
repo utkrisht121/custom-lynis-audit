@@ -1,87 +1,98 @@
 #!/bin/sh
+# Lynis custom tests for macOS. Lynis SOURCES this file; do not run it directly.
+# The test IDs, registration order, and Lynis reporting functions are retained.
 
-##############################################################################
-# Custom Test - Firewall and Stealth Mode
-##############################################################################
-
-Register --test-no FIRE-9001 \
-         --weight L \
-         --network NO \
-         --category security \
-         --description "Check macOS Firewall and Stealth Mode"
-
-if [ ${SKIPTEST} -eq 0 ]; then
-
-    FIREWALL_BIN="/usr/libexec/ApplicationFirewall/socketfilterfw"
+# FIRE-9001: macOS Application Firewall and stealth mode
+Register --test-no FIRE-9001 --os macOS --weight L --network NO --category security \
+    --description "Check macOS Firewall and Stealth Mode"
+if [ "${SKIPTEST:-1}" -eq 0 ]; then
+    FIREWALL_BIN="${FIREWALL_BIN:-/usr/libexec/ApplicationFirewall/socketfilterfw}"
 
     if [ ! -x "${FIREWALL_BIN}" ]; then
-        LogText "Firewall daemon not found"
+        Display --indent 2 --text "- macOS Application Firewall" --result "UNVERIFIED" --color YELLOW
+        LogText "FIRE-9001: socketfilterfw utility unavailable"
         Report "firewall_daemon=missing"
-        ReportWarning "FIRE-9001" "Firewall daemon not found"
-        exit 0
-    fi
-
-    # Check Firewall Status
-    FW_STATUS=$(${FIREWALL_BIN} --getglobalstate 2>/dev/null)
-
-    if echo "${FW_STATUS}" | grep -qi "enabled"; then
-        LogText "Firewall ENABLED"
-        Report "firewall_status=enabled"
-        AddHP 5 5
+        Report "firewall_status=unknown"
+        Report "stealth_mode=unknown"
+        ReportWarning "${TEST_NO}" "Firewall settings could not be verified: socketfilterfw unavailable"
     else
-        LogText "Firewall DISABLED"
-        Report "firewall_status=disabled"
-        ReportWarning "FIRE-9001" "Firewall is disabled"
-        AddHP 0 5
+        FW_STATUS=$("${FIREWALL_BIN}" --getglobalstate 2>/dev/null)
+        case "${FW_STATUS}" in
+            *"Firewall is enabled"*|*"Firewall is Enabled"*)
+                Display --indent 2 --text "- macOS Application Firewall" --result "ENABLED" --color GREEN
+                LogText "FIRE-9001: Firewall ENABLED"
+                Report "firewall_status=enabled"
+                AddHP 5 5
+                ;;
+            *"Firewall is disabled"*|*"Firewall is Disabled"*)
+                Display --indent 2 --text "- macOS Application Firewall" --result "DISABLED" --color YELLOW
+                LogText "FIRE-9001: Firewall DISABLED"
+                Report "firewall_status=disabled"
+                ReportWarning "${TEST_NO}" "Firewall is disabled"
+                AddHP 0 5
+                ;;
+            *)
+                Display --indent 2 --text "- macOS Application Firewall" --result "UNVERIFIED" --color YELLOW
+                LogText "FIRE-9001: Firewall status could not be determined"
+                Report "firewall_status=unknown"
+                ReportWarning "${TEST_NO}" "Firewall status could not be verified"
+                ;;
+        esac
+
+        STEALTH_STATUS=$("${FIREWALL_BIN}" --getstealthmode 2>/dev/null)
+        case "${STEALTH_STATUS}" in
+            *"Stealth mode enabled"*|*"Stealth mode is on"*)
+                Display --indent 2 --text "- Firewall stealth mode" --result "ENABLED" --color GREEN
+                LogText "FIRE-9001: Stealth Mode ENABLED"
+                Report "stealth_mode=enabled"
+                ;;
+            *"Stealth mode disabled"*|*"Stealth mode is off"*)
+                Display --indent 2 --text "- Firewall stealth mode" --result "DISABLED" --color YELLOW
+                LogText "FIRE-9001: Stealth Mode DISABLED"
+                Report "stealth_mode=disabled"
+                ReportWarning "${TEST_NO}" "Stealth Mode is disabled"
+                ;;
+            *)
+                Display --indent 2 --text "- Firewall stealth mode" --result "UNVERIFIED" --color YELLOW
+                LogText "FIRE-9001: Stealth Mode status could not be determined"
+                Report "stealth_mode=unknown"
+                ReportWarning "${TEST_NO}" "Stealth Mode status could not be verified"
+                ;;
+        esac
     fi
-
-    # Check Stealth Mode
-    STEALTH_STATUS=$(${FIREWALL_BIN} --getstealthmode 2>/dev/null)
-
-    if echo "${STEALTH_STATUS}" | grep -qi "on"; then
-        LogText "Stealth Mode ENABLED"
-        Report "stealth_mode=enabled"
-    else
-        LogText "Stealth Mode DISABLED"
-        Report "stealth_mode=disabled"
-        ReportWarning "FIRE-9001" "Stealth Mode is disabled"
-    fi
-
 fi
-##############################################################################
-# Custom Test - FileVault Encryption
-##############################################################################
 
-Register --test-no CRYP-9001 \
-    --weight L \
-    --network NO \
-    --category security \
+# CRYP-9001: FileVault full-disk encryption
+Register --test-no CRYP-9001 --os macOS --weight L --network NO --category security \
     --description "Check macOS FileVault disk encryption"
-
-if [ ${SKIPTEST} -eq 0 ]; then
-
+if [ "${SKIPTEST:-1}" -eq 0 ]; then
     if command -v fdesetup >/dev/null 2>&1; then
         FILEVAULT_STATUS=$(fdesetup status 2>&1)
-
-        if echo "${FILEVAULT_STATUS}" | grep -qi "FileVault is On"; then
-            Display --indent 2 --text "- FileVault disk encryption" \
-                --result "ENABLED" --color GREEN
-            LogText "CRYP-9001: FileVault is enabled"
-            Report "filevault_status=enabled"
-            AddHP 5 5
-        else
-            Display --indent 2 --text "- FileVault disk encryption" \
-                --result "DISABLED OR UNVERIFIED" --color YELLOW
-            LogText "CRYP-9001: FileVault is disabled or unverified"
-            Report "filevault_status=disabled_or_unverified"
-            ReportWarning "${TEST_NO}" \
-                "FileVault is disabled or its status could not be verified"
-            AddHP 0 5
-        fi
+        case "${FILEVAULT_STATUS}" in
+            *"FileVault is On"*)
+                Display --indent 2 --text "- FileVault disk encryption" --result "ENABLED" --color GREEN
+                LogText "CRYP-9001: FileVault is enabled"
+                Report "filevault_status=enabled"
+                AddHP 5 5
+                ;;
+            *"FileVault is Off"*)
+                Display --indent 2 --text "- FileVault disk encryption" --result "DISABLED" --color YELLOW
+                LogText "CRYP-9001: FileVault is disabled"
+                Report "filevault_status=disabled"
+                ReportWarning "${TEST_NO}" "FileVault disk encryption is disabled"
+                AddHP 0 5
+                ;;
+            *)
+                Display --indent 2 --text "- FileVault disk encryption" --result "UNVERIFIED" --color YELLOW
+                LogText "CRYP-9001: FileVault status could not be verified"
+                Report "filevault_status=unknown"
+                ReportWarning "${TEST_NO}" "FileVault status could not be verified"
+                ;;
+        esac
     else
+        Display --indent 2 --text "- FileVault disk encryption" --result "UNVERIFIED" --color YELLOW
         LogText "CRYP-9001: fdesetup command unavailable"
         Report "filevault_status=unknown"
+        ReportWarning "${TEST_NO}" "FileVault could not be verified: fdesetup unavailable"
     fi
-
 fi
-
